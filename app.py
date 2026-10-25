@@ -94,7 +94,7 @@ def get_secret(name, default=""):
         value = None
     return str(value) if value else os.environ.get(name, default)
 
-SSID = get_secret("SSID")
+SSID = '42["auth",{"session":"a:4:{s:10:\"session_id\";s:32:\"8508fc1e421f36919693a93145d54072\";s:10:\"ip_address\";s:13:\"46.248.203.43\";s:10:\"user_agent\";s:111:\"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36\";s:13:\"last_activity\";i:1792966820;}ecbf3ea7ccf3760174c639ab0afb811a","isDemo":0,"uid":138770488,"platform":2,"isFastHistory":true,"isOptimized":true}]'
 TELEGRAM_TOKEN = get_secret("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = get_secret("TELEGRAM_CHAT_ID")
 CSV_FILE = "elzogheir_vip_log.csv"
