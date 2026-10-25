@@ -1,0 +1,8 @@
+streamlit
+pandas
+numpy
+plotly
+requests
+streamlit-js-eval
+pocketoptionapi-async
+kaleido
