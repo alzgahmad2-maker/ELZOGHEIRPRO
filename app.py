@@ -4,26 +4,72 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import time
-import math
 import asyncio
 import requests
 import os
-import platform
-import shutil
-import subprocess
-import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
 from streamlit_js_eval import streamlit_js_eval
 from pocketoptionapi_async import AsyncPocketOptionClient
+from io import BytesIO
 
 # ============================================================
 # 1. إعدادات الصفحة والتصميم (CSS) - ELZOGHEIR VIP
 # ============================================================
 st.set_page_config(page_title="ELZOGHEIR CANDLE-VIP", page_icon="👑", layout="wide")
 
-if not hasattr(st, "fragment"):
-    st.error("هذا الإصدار يحتاج Streamlit 1.37 أو أحدث. نفّذ: py -m pip install -U streamlit")
-    st.stop()
+# ---------- اللغة / Language ----------
+if 'lang' not in st.session_state:
+    st.session_state['lang'] = 'ar'
+
+TEXTS = {
+ "ar": {
+  "settings": "⚙️ إعدادات VIP", "pair": "الزوج / الأصل (40 زوج)", "tf": "الإطار الزمني",
+  "p15": "15 ثانية", "p30": "30 ثانية", "p60": "دقيقة", "p180": "3 دقائق",
+  "p300": "5 دقائق", "p900": "15 دقيقة", "p1800": "30 دقيقة",
+  "risk": "🛡️ إدارة المخاطر", "stake": "حجم الدخول الأساسي ($)", "mart": "تفعيل المضاعفة (Martingale)",
+  "feat": "🔔 الميزات", "tg": "إشعارات تيليجرام", "snd": "تنبيه صوتي",
+  "pre": "تنبيه قبل الدخول بـ 30 ثانية", "auto": "تحديث تلقائي (60 ث)",
+  "b_sync": "🚀 مزامنة وتحليل", "b_chart": "📡 سكنر الشارت", "b_market": "🔍 مسح السوق (Scanner)",
+  "b_clear": "🗑️ مسح الذاكرة", "price": "السعر", "trend": "الاتجاه", "up": "صاعد ↗", "down": "هابط ↘",
+  "stake_card": "حجم الدخول", "final": "الإشارة النهائية",
+  "cd": "⏳ الوقت المتبقي لإغلاق صفقة", "cd_unit": "(ثانية)",
+  "done": "✅ انتهت مدة الصفقة! تم تقييمها في السجل.",
+  "pre_msg": "⚠️ استعد! الدخول بعد", "pre_unit": "ثانية",
+  "analytics": "📊 لوحة التحليلات وإدارة رأس المال", "top": "أفضل الأزواج (Top Pairs)",
+  "dl_log": "📥 تحميل السجل (CSV)", "dl_chart": "📥 تحميل الرسم البياني كصورة (PNG)",
+  "scan_title": "### 🔍 نتائج مسح السوق (Scanner)", "scan_spin": "جاري فحص 10 أزواج...",
+  "c_pair": "الزوج", "c_sig": "الإشارة", "c_price": "السعر",
+  "info": "👈 اضغط **مزامنة وتحليل** في الشريط الجانبي لبدء التحليل.",
+  "r_full": "توافق كامل (أنماط + RSI + MACD + EMA + إطار أكبر + جلسة)",
+  "r_buy": "أنماط شراء فقط", "r_sell": "أنماط بيع فقط", "r_noconf": "بدون تأكيد",
+  "r_inactive": "⚠️ جلسة غير نشطة", "r_none": "لا توجد إشارة", "lang_btn": "🌐 English",
+ },
+ "en": {
+  "settings": "⚙️ VIP Settings", "pair": "Pair / Asset (40 pairs)", "tf": "Timeframe",
+  "p15": "15 sec", "p30": "30 sec", "p60": "1 min", "p180": "3 min",
+  "p300": "5 min", "p900": "15 min", "p1800": "30 min",
+  "risk": "🛡️ Risk Management", "stake": "Base stake ($)", "mart": "Enable Martingale",
+  "feat": "🔔 Features", "tg": "Telegram alerts", "snd": "Sound alert",
+  "pre": "Alert 30s before entry", "auto": "Auto refresh (60s)",
+  "b_sync": "🚀 Sync & Analyze", "b_chart": "📡 Chart Scanner", "b_market": "🔍 Market Scan",
+  "b_clear": "🗑️ Clear Memory", "price": "Price", "trend": "Trend", "up": "Bullish ↗", "down": "Bearish ↘",
+  "stake_card": "Stake", "final": "Final Signal",
+  "cd": "⏳ Time left to close trade", "cd_unit": "(sec)",
+  "done": "✅ Trade expired! It was evaluated in the log.",
+  "pre_msg": "⚠️ Get ready! Entry in", "pre_unit": "sec",
+  "analytics": "📊 Analytics & Capital Management", "top": "Top Pairs",
+  "dl_log": "📥 Download log (CSV)", "dl_chart": "📥 Download chart as image (PNG)",
+  "scan_title": "### 🔍 Market Scan Results", "scan_spin": "Scanning 10 pairs...",
+  "c_pair": "Pair", "c_sig": "Signal", "c_price": "Price",
+  "info": "👈 Press **Sync & Analyze** in the sidebar to start.",
+  "r_full": "Full confluence (patterns + RSI + MACD + EMA + higher TF + session)",
+  "r_buy": "Buy patterns only", "r_sell": "Sell patterns only", "r_noconf": "no confirmation",
+  "r_inactive": "⚠️ Inactive session", "r_none": "No signal", "lang_btn": "🌐 العربية",
+ },
+}
+def t(k): return TEXTS[st.session_state['lang']][k]
+def toggle_lang():
+    st.session_state['lang'] = 'en' if st.session_state['lang'] == 'ar' else 'ar'
 
 st.markdown("""
 <style>
@@ -49,34 +95,65 @@ st.markdown("""
     div[data-testid="stSidebar"] { background: linear-gradient(180deg, #0A0E17 0%, #050810 100%); border-right: 1px solid #1F2A3C; }
     .stButton>button { background: linear-gradient(135deg, #FFD700 0%, #B8860B 100%); color: #000; font-weight: 700; border: none; border-radius: 10px; padding: 0.6rem 1.5rem; width: 100%; }
     .stButton>button:hover { box-shadow: 0 0 15px rgba(255, 215, 0, 0.6); transform: translateY(-2px); }
-</style>
-""", unsafe_allow_html=True)
 
-# إضافات التصميم (أنميشن + لودنج + قوة الإشارة) - مضافة فقط دون تعديل ما سبق
-st.markdown("""
-<style>
-    @keyframes spin { to { transform: rotate(360deg); } }
-    @keyframes sweep { 0% { left: -40%; } 100% { left: 100%; } }
-    @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
-    @keyframes glowPulse { 0%,100% { box-shadow: 0 0 12px rgba(255,215,0,0.25); } 50% { box-shadow: 0 0 30px rgba(255,215,0,0.65); } }
-    @keyframes blinkRed { 0%,100% { border-color: #FFD700; } 50% { border-color: #FF3355; } }
+    /* ===== لمسات VIP إضافية ===== */
+    .main-header {
+        background: linear-gradient(90deg, #FFD700, #FFF4B0, #FFD700, #B8860B);
+        background-size: 300% auto;
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        animation: shine 5s linear infinite;
+        letter-spacing: 2px;
+    }
+    @keyframes shine { to { background-position: 300% center; } }
 
-    .metric-card { animation: fadeUp 0.5s ease both; }
-    .countdown-box { animation: fadeUp 0.4s ease both, glowPulse 2s ease-in-out infinite; }
-    .countdown-box.urgent { animation: fadeUp 0.4s ease both, blinkRed 0.8s ease-in-out infinite; }
+    .metric-card {
+        backdrop-filter: blur(10px);
+        transition: all 0.3s ease;
+        position: relative; overflow: hidden;
+    }
+    .metric-card::before {
+        content: ""; position: absolute; top: 0; left: -100%; width: 60%; height: 100%;
+        background: linear-gradient(120deg, transparent, rgba(255,215,0,0.08), transparent);
+        transition: left 0.7s ease;
+    }
+    .metric-card:hover::before { left: 150%; }
+    .metric-card:hover {
+        transform: translateY(-4px);
+        border-color: #FFD700;
+        box-shadow: 0 8px 30px rgba(255,215,0,0.18);
+    }
 
-    .loader-box { background: linear-gradient(135deg, #121826 0%, #0A0E17 100%); border: 1px solid #1F2A3C; border-radius: 15px; padding: 1.5rem; text-align: center; margin: 1rem 0; animation: glowPulse 2s ease-in-out infinite; }
-    .loader-ring { width: 58px; height: 58px; margin: 0 auto 12px auto; border: 4px solid #1F2A3C; border-top-color: #FFD700; border-right-color: #00FFAA; border-radius: 50%; animation: spin 0.9s linear infinite; }
-    .loader-title { color: #FFD700; font-weight: 900; font-size: 1.2rem; }
-    .loader-sub { color: #8899AA; font-size: 0.9rem; margin: 0.3rem 0 1rem 0; }
-    .loader-track { position: relative; height: 6px; background: #1F2A3C; border-radius: 6px; overflow: hidden; }
-    .loader-sweep { position: absolute; top: 0; height: 100%; width: 40%; background: linear-gradient(90deg, transparent, #FFD700, transparent); animation: sweep 1.2s ease-in-out infinite; }
-    .loader-fill { height: 100%; background: linear-gradient(90deg, #FFD700, #00FFAA); transition: width 0.3s ease; }
+    .buy-signal, .sell-signal { animation: pulse 1.8s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.65; } }
 
-    .signal-row { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; }
-    .strength-badge { font-size: 1.4rem; font-weight: 900; border: 2px solid; border-radius: 12px; padding: 2px 14px; }
-    .strength-track { width: 80%; height: 8px; background: #1F2A3C; border-radius: 8px; margin: 10px 0; overflow: hidden; }
-    .strength-fill { height: 100%; border-radius: 8px; transition: width 0.6s ease; }
+    .countdown-box { animation: glow 2s ease-in-out infinite alternate; }
+    @keyframes glow {
+        from { box-shadow: 0 0 15px rgba(255,215,0,0.3); }
+        to   { box-shadow: 0 0 40px rgba(255,215,0,0.7); }
+    }
+
+    div[data-baseweb="select"] > div {
+        background: #0F1522 !important; border: 1px solid #1F2A3C !important; border-radius: 10px !important;
+    }
+    div[data-baseweb="select"] > div:hover { border-color: #FFD700 !important; }
+
+    .stButton>button { transition: all 0.25s ease; letter-spacing: 0.5px; }
+    .stButton>button:active { transform: scale(0.97); }
+
+    div[data-testid="stExpander"] {
+        border: 1px solid #1F2A3C; border-radius: 12px; background: rgba(18,24,38,0.6);
+    }
+
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #050810; }
+    ::-webkit-scrollbar-thumb { background: #B8860B; border-radius: 10px; }
+
+    /* تنبيه ما قبل الدخول */
+    .pre-alert { border-color: #FF8800; animation: warn 0.8s ease-in-out infinite alternate; }
+    @keyframes warn {
+        from { box-shadow: 0 0 15px rgba(255,136,0,0.4); }
+        to   { box-shadow: 0 0 45px rgba(255,51,85,0.9); }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -84,200 +161,100 @@ st.markdown('<div class="main-header">👑 ELZOGHEIR CANDLE-VIP</div>', unsafe_a
 st.markdown('<div class="sub-header">ULTIMATE TRADING SYSTEM • 40 PAIRS • MULTI-TIMEFRAME</div>', unsafe_allow_html=True)
 
 # ============================================================
-# 2. بيانات الاعتماد والإعدادات (من st.secrets أو متغيرات البيئة - لا أسرار داخل الكود)
+# 2. بيانات الاعتماد والإعدادات
 # ============================================================
-def get_secret(name, default=""):
-    value = None
-    try:
-        value = st.secrets.get(name)
-    except Exception:
-        value = None
-    return str(value) if value else os.environ.get(name, default)
-
-SSID = '42["auth",{"session":"a:4:{s:10:\"session_id\";s:32:\"8508fc1e421f36919693a93145d54072\";s:10:\"ip_address\";s:13:\"46.248.203.43\";s:10:\"user_agent\";s:111:\"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36\";s:13:\"last_activity\";i:1792966820;}ecbf3ea7ccf3760174c639ab0afb811a","isDemo":0,"uid":138770488,"platform":2,"isFastHistory":true,"isOptimized":true}]'
-TELEGRAM_TOKEN = get_secret("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = get_secret("TELEGRAM_CHAT_ID")
+SSID = '42["auth",{"session":"bchtvth5m3bmdovlva3i5t59nq","isDemo":1,"uid":136934681,"platform":2,"isFastHistory":true,"isOptimized":true}]'
+TELEGRAM_TOKEN = "8531787721:AAH6dmi42q9BGw7rsdJYW7Ux3gfJj7iZ51E"
+TELEGRAM_CHAT_ID = "8758991455"
 CSV_FILE = "elzogheir_vip_log.csv"
-RECENT_CANDLES = 3  # الأنماط المعتبرة في الإشارة = آخر 3 شموع فقط
 
 PAIRS = [
+    # --- الأزواج الأصلية (20) ---
     "EURUSD_otc", "GBPUSD_otc", "USDJPY_otc", "AUDUSD_otc", "USDCAD_otc",
     "USDCHF_otc", "NZDUSD_otc", "EURGBP_otc", "EURJPY_otc", "GBPJPY_otc",
     "AUDCAD_otc", "AUDJPY_otc", "CADJPY_otc", "CHFJPY_otc", "EURCAD_otc",
     "EURAUD_otc", "GBPAUD_otc", "GBPCAD_otc", "XAUUSD_otc", "BTCUSD_otc",
-    # 20 زوج إضافي
+    # --- الأزواج الجديدة (20) ---
     "AUDCHF_otc", "AUDNZD_otc", "CADCHF_otc", "EURCHF_otc", "EURNZD_otc",
     "GBPCHF_otc", "GBPNZD_otc", "NZDCAD_otc", "NZDCHF_otc", "NZDJPY_otc",
-    "USDSGD_otc", "USDCNH_otc", "USDINR_otc", "USDTRY_otc", "USDBRL_otc",
-    "USDMXN_otc", "XAGUSD_otc", "ETHUSD_otc", "LTCUSD_otc", "USDEGP_otc"
+    "USDMXN_otc", "USDSGD_otc", "USDINR_otc", "USDBRL_otc", "USDTHB_otc",
+    "USDIDR_otc", "USDPHP_otc", "USDEGP_otc", "USDCNH_otc", "USDARS_otc",
 ]
-
-def open_calculator():
-    """يفتح الآلة الحاسبة على الجهاز الذي يعمل عليه البرنامج (اللابتوب)."""
-    system = platform.system()
-    try:
-        if system == "Windows":
-            subprocess.Popen(["calc.exe"])
-        elif system == "Darwin":
-            subprocess.Popen(["open", "-a", "Calculator"])
-        else:
-            for cmd in ["gnome-calculator", "kcalc", "mate-calc", "xcalc"]:
-                if shutil.which(cmd):
-                    subprocess.Popen([cmd])
-                    return True, ""
-            return False, "لم أجد آلة حاسبة مثبتة على النظام"
-        return True, ""
-    except Exception as e:
-        return False, f"{type(e).__name__}: {e}"
 
 # ============================================================
 # 3. الشريط الجانبي
 # ============================================================
 with st.sidebar:
-    st.markdown("### ⚙️ إعدادات VIP")
-    symbol = st.selectbox("الزوج / الأصل (40 زوج)", PAIRS)
-    period = st.selectbox("الإطار الزمني", 
-        [15, 30, 60, 180, 300, 900, 1800], 
-        format_func=lambda x: {15: "15 ثانية", 30: "30 ثانية", 60: "دقيقة", 180: "3 دقائق", 300: "5 دقائق", 900: "15 دقيقة", 1800: "30 دقيقة"}[x],
-        index=2
+    st.button(t("lang_btn"), on_click=toggle_lang, use_container_width=True)
+    st.markdown(f"### {t('settings')}")
+    symbol = st.selectbox(t("pair"), PAIRS, key="symbol")
+    period = st.selectbox(t("tf"),
+        [15, 30, 60, 180, 300, 900, 1800],
+        format_func=lambda x: t(f"p{x}"),
+        index=2, key="period"
     )
     max_candles = 200
-    
+
     st.markdown("---")
-    st.markdown("### 🛡️ إدارة المخاطر")
-    base_stake = st.number_input("حجم الدخول الأساسي ($)", min_value=1.0, value=1.0, step=1.0)
-    martingale_mode = st.checkbox("تفعيل المضاعفة (Martingale)", value=False)
-    martingale_max_steps = st.number_input("أقصى مراحل المضاعفة", min_value=1, max_value=6, value=3, step=1, disabled=not martingale_mode)
-    
+    st.markdown(f"### {t('risk')}")
+    base_stake = st.number_input(t("stake"), min_value=1.0, value=1.0, step=1.0, key="stake")
+    martingale_mode = st.checkbox(t("mart"), value=False, key="mart")
+
     st.markdown("---")
-    st.markdown("### 🔔 الميزات")
-    enable_telegram = st.checkbox("إشعارات تيليجرام", value=False)
-    enable_sound = st.checkbox("تنبيه صوتي", value=True)
-    pre_alert_seconds = st.number_input("التنبيه قبل موعد الدخول (ثانية)", min_value=5, max_value=120, value=30, step=5)
-    enable_auto_refresh = st.checkbox("تحديث تلقائي (60 ث)", value=False)
-    
+    st.markdown(f"### {t('feat')}")
+    enable_telegram = st.checkbox(t("tg"), value=False, key="tg")
+    enable_sound = st.checkbox(t("snd"), value=True, key="snd")
+    enable_pre_alert = st.checkbox(t("pre"), value=True, key="pre")
+    enable_auto_refresh = st.checkbox(t("auto"), value=False, key="auto")
+
     st.markdown("---")
-    if st.button("🚀 جلب صفقة", use_container_width=True):
+    if st.button(t("b_sync"), use_container_width=True):
         st.session_state['run_scan'] = True
-        st.session_state['do_fetch'] = True
-        
-    if st.button("🔍 مسح السوق (Scanner)", use_container_width=True):
+        st.session_state['trade_opened_time'] = None
+
+    if st.button(t("b_chart"), use_container_width=True):
+        st.session_state['run_scan'] = True
+        st.session_state['trade_opened_time'] = None
+        st.session_state['laser_pending'] = True
+
+    if st.button(t("b_market"), use_container_width=True):
         st.session_state['run_scanner'] = True
 
-    if st.button("🧮 فتح الآلة الحاسبة", use_container_width=True):
-        ok, err = open_calculator()
-        if ok:
-            st.toast("تم فتح الآلة الحاسبة", icon="🧮")
-        else:
-            st.toast(f"تعذر فتح الآلة الحاسبة: {err}", icon="⚠️")
-
-    if st.button("🗑️ مسح الذاكرة", use_container_width=True):
+    if st.button(t("b_clear"), use_container_width=True):
         for key in list(st.session_state.keys()): del st.session_state[key]
         st.rerun()
 
-if not SSID:
-    st.error("🔐 لم يتم ضبط SSID. أنشئ الملف .streamlit/secrets.toml (انظر secrets.toml.example) أو عرّف متغير البيئة SSID.")
-    st.stop()
-
-higher_tf = 300 if period < 300 else (900 if period < 900 else 3600)
-
 # ============================================================
-# 4. دوال مساعدة (جلب البيانات / التنبيهات / اللودنج)
+# 4. دوال مساعدة
 # ============================================================
-def play_sound(tag="evt"):
+def play_sound(key="sound_alert"):
     if enable_sound:
-        streamlit_js_eval(js_expressions="new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg').play()", key=f"sound_{tag}_{time.time_ns()}")
+        streamlit_js_eval(js_expressions="new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg').play()", key=key)
 
 def send_telegram_alert(message):
-    """يرجع (نجاح، رسالة_خطأ). لا يخفي الأخطاء."""
-    if not enable_telegram:
-        return False, ""
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        return False, "توكن/معرّف تيليجرام غير مضبوط في secrets"
+    if not enable_telegram or TELEGRAM_TOKEN == "ضع_التوكن_هنا": return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
-    try:
-        r = requests.post(url, json=payload, timeout=5)
-        if r.status_code != 200:
-            return False, f"HTTP {r.status_code}"
-        return True, ""
-    except Exception as e:
-        return False, f"{type(e).__name__}: {e}"
+    try: requests.post(url, json=payload, timeout=5)
+    except: pass
 
-def notify(title, tg_message=None, tag="evt"):
-    st.toast(title, icon="⏰")
-    play_sound(tag)
-    if tg_message:
-        ok, err = send_telegram_alert(tg_message)
-        if not ok and err:
-            st.toast(f"تيليجرام: {err}", icon="⚠️")
-
-def show_loader(slot, title, sub, pct=None):
-    if pct is None:
-        bar = '<div class="loader-track"><div class="loader-sweep"></div></div>'
-    else:
-        bar = f'<div class="loader-track"><div class="loader-fill" style="width:{pct:.0f}%;"></div></div>'
-    slot.markdown(
-        f'<div class="loader-box"><div class="loader-ring"></div>'
-        f'<div class="loader-title">{title}</div><div class="loader-sub">{sub}</div>{bar}</div>',
-        unsafe_allow_html=True
-    )
-
-def to_epoch(series):
-    return ((series - pd.Timestamp("1970-01-01")) // pd.Timedelta(seconds=1)).astype("int64")
-
-def build_df(candles, max_candles):
-    if not candles:
-        return None
-    data = [{'time': c.timestamp, 'open': c.open, 'high': c.high, 'low': c.low, 'close': c.close} for c in candles]
-    df = pd.DataFrame(data)
-    try:
-        df['time'] = pd.to_datetime(df['time'], unit='s')
-    except Exception:
-        df['time'] = pd.to_datetime(df['time'])
-    if getattr(df['time'].dt, 'tz', None) is not None:
-        df['time'] = df['time'].dt.tz_convert('UTC').dt.tz_localize(None)
-    for col in ['open', 'high', 'low', 'close']:
-        df[col] = df[col].astype(float)
-    df = df.sort_values('time').drop_duplicates('time').tail(max_candles).reset_index(drop=True)
-    df['ts'] = to_epoch(df['time'])
-    return df
-
-async def _fetch_many_async(requests_list, progress_cb=None):
-    """اتصال واحد يُعاد استخدامه لكل الطلبات + عزل الأخطاء لكل زوج."""
-    results, errors = {}, {}
+async def fetch_data_async(symbol, period, max_candles):
     client = AsyncPocketOptionClient(SSID, is_demo=True)
-    try:
-        await client.connect()
-    except Exception as e:
-        return {}, {"connection": f"{type(e).__name__}: {e}"}
-    try:
-        total = len(requests_list)
-        for n, (sym, tf, cnt) in enumerate(requests_list, 1):
-            try:
-                candles = await client.get_candles(asset=sym, timeframe=tf, count=cnt)
-                df = build_df(candles, cnt)
-                if df is None or len(df) == 0:
-                    errors[(sym, tf)] = "لا توجد بيانات"
-                else:
-                    results[(sym, tf)] = df
-            except Exception as e:
-                errors[(sym, tf)] = f"{type(e).__name__}: {e}"
-            if progress_cb:
-                progress_cb(n, total, sym)
-    finally:
-        try:
-            await client.disconnect()
-        except Exception:
-            pass
-    return results, errors
+    await client.connect()
+    candles = await client.get_candles(asset=symbol, timeframe=period, count=max_candles)
+    await client.disconnect()
+    return candles
 
-def fetch_many(requests_list, progress_cb=None):
-    unique = list(dict.fromkeys(requests_list))
+def get_otc_data(symbol, period, max_candles):
     try:
-        return asyncio.run(_fetch_many_async(unique, progress_cb))
+        candles = asyncio.run(fetch_data_async(symbol, period, max_candles))
+        if not candles: return None
+        data = [{'time': c.timestamp, 'open': c.open, 'high': c.high, 'low': c.low, 'close': c.close} for c in candles]
+        df = pd.DataFrame(data)
+        df['time'] = pd.to_datetime(df['time'], unit='s')
+        return df.tail(max_candles).reset_index(drop=True)
     except Exception as e:
-        return {}, {"error": f"{type(e).__name__}: {e}"}
+        return None
 
 # ============================================================
 # 5. المؤشرات والأنماط
@@ -295,11 +272,6 @@ def calculate_indicators(df):
     df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
     df['MACD_Hist'] = df['MACD'] - df['Signal_Line']
     df['EMA200'] = df['close'].ewm(span=200, adjust=False).mean()
-
-    # ATR لفلتر التذبذب
-    prev_close = df['close'].shift(1)
-    tr = pd.concat([df['high'] - df['low'], (df['high'] - prev_close).abs(), (df['low'] - prev_close).abs()], axis=1).max(axis=1)
-    df['ATR'] = tr.rolling(window=14).mean()
     return df
 
 def detect_patterns(df):
@@ -321,204 +293,62 @@ def detect_patterns(df):
     return patterns
 
 # ============================================================
-# 6. منطق الإشارة (فلترة الجلسات والاتجاه + نسبة قوة الإشارة)
+# 6. منطق الإشارة (مع فلترة الجلسات والاتجاه)
 # ============================================================
-PATTERN_WEIGHTS = {
-    "Doji": 0, "Hammer": 1.5, "Shooting Star": 1.5,
-    "Bullish Engulfing": 2, "Bearish Engulfing": 2,
-    "Morning Star": 3, "Evening Star": 3,
-}
-
-def strength_color(s):
-    return "#00FFAA" if s >= 75 else "#FFCC00" if s >= 50 else "#FF3355"
-
 def generate_signal(patterns, df, higher_tf_df):
-    """يرجع: (الإشارة، عدد الشراء، عدد البيع، السبب، قوة الإشارة %)"""
-    n = len(df)
-    # فقط الأنماط الحديثة (آخر RECENT_CANDLES شموع) وليس كل التاريخ
-    recent = [p for p in patterns if p[0] >= n - RECENT_CANDLES]
-    buys = sum(1 for _, _, s in recent if s == "buy")
-    sells = sum(1 for _, _, s in recent if s == "sell")
-    buy_w = sum(PATTERN_WEIGHTS.get(nm, 1) for _, nm, s in recent if s == "buy")
-    sell_w = sum(PATTERN_WEIGHTS.get(nm, 1) for _, nm, s in recent if s == "sell")
-
-    if buy_w == sell_w:
-        return "NEUTRAL", buys, sells, "لا توجد إشارة", 0
-
-    is_buy = buy_w > sell_w
-    last_rsi = float(df['RSI'].iloc[-1]); last_macd = float(df['MACD_Hist'].iloc[-1])
-    last_close = float(df['close'].iloc[-1]); last_ema = float(df['EMA200'].iloc[-1])
-    last_atr = float(df['ATR'].iloc[-1]) if 'ATR' in df else float('nan')
-
+    buys = sum(1 for _, _, s in patterns if s == "buy")
+    sells = sum(1 for _, _, s in patterns if s == "sell")
+    
+    last_rsi = df['RSI'].iloc[-1]; last_macd = df['MACD_Hist'].iloc[-1]
+    last_close = df['close'].iloc[-1]; last_ema = df['EMA200'].iloc[-1]
+    
     # فلترة الجلسة (تجنب أوقات السيولة المنخفضة)
-    current_hour = datetime.now(timezone.utc).hour
-    is_active_session = 7 <= current_hour <= 21  # جلسات لندن ونيويورك
-
+    current_hour = datetime.utcnow().hour
+    is_active_session = 7 <= current_hour <= 21 # جلسات لندن ونيويورك
+    
     # الاتجاه في الإطار الأكبر
-    higher_known = higher_tf_df is not None and len(higher_tf_df) > 0
-    higher_trend = None
-    if higher_known:
+    higher_trend = "UP"
+    if higher_tf_df is not None and len(higher_tf_df) > 0:
         higher_close = higher_tf_df['close'].iloc[-1]
         higher_ema = higher_tf_df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
         higher_trend = "UP" if higher_close > higher_ema else "DOWN"
-
-    # فلتر التذبذب: تجنب الأسواق الراكدة
-    atr_hist = df['ATR'].dropna().tail(100) if 'ATR' in df else pd.Series(dtype=float)
-    vol_ok = len(atr_hist) >= 20 and not math.isnan(last_atr) and last_atr >= 0.5 * float(atr_hist.median())
-
-    if is_buy:
-        rsi_ok = (not math.isnan(last_rsi)) and last_rsi < 70
-        rsi_comfort = rsi_ok and last_rsi <= 60
-        macd_ok = (not math.isnan(last_macd)) and last_macd > 0
-        ema_ok = last_close > last_ema
-        higher_ok = higher_known and higher_trend == "UP"
-    else:
-        rsi_ok = (not math.isnan(last_rsi)) and last_rsi > 30
-        rsi_comfort = rsi_ok and last_rsi >= 40
-        macd_ok = (not math.isnan(last_macd)) and last_macd < 0
-        ema_ok = last_close < last_ema
-        higher_ok = higher_known and higher_trend == "DOWN"
-
-    # حساب القوة (من 100)
-    pattern_pts = min(30, 12 + abs(buy_w - sell_w) * 6)
-    score = pattern_pts
-    score += 10 if rsi_comfort else 5 if rsi_ok else 0
-    score += 15 if macd_ok else 0
-    score += 15 if ema_ok else 0
-    score += 15 if higher_ok else (7 if not higher_known else 0)
-    score += 5 if is_active_session else 0
-    score += 10 if vol_ok else 0
-    strength = int(round(min(100, score)))
-
-    strong = rsi_ok and macd_ok and ema_ok and higher_ok and is_active_session and vol_ok
-    side_ar = "شراء" if is_buy else "بيع"
-    if strong:
-        label = "STRONG BUY" if is_buy else "STRONG SELL"
-        return label, buys, sells, "توافق كامل (أنماط + RSI + MACD + EMA + إطار أكبر + جلسة + تذبذب)", strength
-
-    missing = []
-    if not rsi_ok: missing.append("RSI")
-    if not macd_ok: missing.append("MACD")
-    if not ema_ok: missing.append("EMA200")
-    if not higher_known: missing.append("الإطار الأكبر غير متاح")
-    elif not higher_ok: missing.append("عكس اتجاه الإطار الأكبر")
-    if not is_active_session: missing.append("جلسة غير نشطة")
-    if not vol_ok: missing.append("تذبذب ضعيف")
-    reason = f"أنماط {side_ar} فقط" + (f" — ينقصها: {'، '.join(missing)}" if missing else " (بدون تأكيد)")
-    return ("WEAK BUY" if is_buy else "WEAK SELL"), buys, sells, reason, strength
+    
+    reason = ""
+    if not is_active_session: reason = t("r_inactive")
+    
+    if buys > sells and last_rsi < 70 and last_macd > 0 and last_close > last_ema and higher_trend == "UP" and is_active_session:
+        return "STRONG BUY", buys, sells, t("r_full")
+    elif sells > buys and last_rsi > 30 and last_macd < 0 and last_close < last_ema and higher_trend == "DOWN" and is_active_session:
+        return "STRONG SELL", buys, sells, t("r_full")
+    elif buys > sells:
+        return "WEAK BUY", buys, sells, f"{t('r_buy')} ({reason if reason else t('r_noconf')})"
+    elif sells > buys:
+        return "WEAK SELL", buys, sells, f"{t('r_sell')} ({reason if reason else t('r_noconf')})"
+    return "NEUTRAL", buys, sells, t("r_none")
 
 # ============================================================
-# 7. إدارة السجل والتحليلات (آمن ضد التلف + تقييم دقيق لكل زوج)
+# 7. إدارة السجل والتحليلات
 # ============================================================
-LOG_COLUMNS = ["Time", "Symbol", "Signal", "Strength", "Entry", "Expiry", "EntryTS", "ExpiryTS", "Timeframe", "Stake", "Result", "Close"]
-_log_lock = threading.Lock()
+def log_trade(symbol, signal, entry_price, timeframe, stake):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    expiry_time = (datetime.now() + timedelta(seconds=timeframe)).strftime("%Y-%m-%d %H:%M:%S")
+    new_data = pd.DataFrame([{"Time": timestamp, "Symbol": symbol, "Signal": signal, "Entry": entry_price, "Expiry": expiry_time, "Stake": stake, "Result": "PENDING"}])
+    if os.path.exists(CSV_FILE): new_data.to_csv(CSV_FILE, mode='a', header=False, index=False)
+    else: new_data.to_csv(CSV_FILE, mode='w', header=True, index=False)
 
-def load_log():
-    if not os.path.exists(CSV_FILE):
-        return pd.DataFrame(columns=LOG_COLUMNS)
-    try:
-        df = pd.read_csv(CSV_FILE)
-    except Exception:
-        return pd.DataFrame(columns=LOG_COLUMNS)
-    for col in LOG_COLUMNS:
-        if col not in df.columns:
-            df[col] = np.nan
-    for col in ["EntryTS", "ExpiryTS", "Timeframe", "Entry", "Close", "Stake", "Strength"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-    df["Result"] = df["Result"].astype(object)
-    # صفقات قديمة بلا طوابع زمنية لا يمكن تقييمها بدقة
-    legacy = (df["Result"] == "PENDING") & df["ExpiryTS"].isna()
-    df.loc[legacy, "Result"] = "UNKNOWN"
-    return df[LOG_COLUMNS]
-
-def save_log(df):
-    tmp = CSV_FILE + ".tmp"
-    df.to_csv(tmp, index=False)
-    os.replace(tmp, CSV_FILE)  # كتابة ذرّية لتفادي تلف الملف
-
-def log_trade(symbol, signal, strength, signal_price, timeframe, stake, entry_ts):
-    row = {
-        "Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Symbol": symbol, "Signal": signal,
-        "Strength": strength, "Entry": signal_price,
-        "Expiry": datetime.fromtimestamp(entry_ts + timeframe).strftime("%Y-%m-%d %H:%M:%S"),
-        "EntryTS": entry_ts, "ExpiryTS": entry_ts + timeframe, "Timeframe": timeframe,
-        "Stake": stake, "Result": "PENDING", "Close": np.nan,
-    }
-    with _log_lock:
-        df = load_log()
-        new = pd.DataFrame([row], columns=LOG_COLUMNS)
-        df = new if df.empty else pd.concat([df, new], ignore_index=True)
-        save_log(df)
-
-def has_pending(symbol):
-    df = load_log()
-    return bool(((df["Symbol"] == symbol) & (df["Result"] == "PENDING")).any())
-
-def evaluate_trades():
-    """يقيّم كل صفقة بسعر زوجها هي: شمعة الدخول (فتح) مقابل إغلاقها."""
-    with _log_lock:
-        df = load_log()
-    now_ts = time.time()
-    due = df[(df["Result"] == "PENDING") & (df["ExpiryTS"] + 2 <= now_ts)]
-    if due.empty:
-        return False
-
-    reqs = []
-    for (sym, tf), grp in due.groupby(["Symbol", "Timeframe"]):
-        tf = int(tf)
-        oldest = float(grp["EntryTS"].min())
-        cnt = int(min(200, max(5, (now_ts - oldest) // tf + 3)))
-        reqs.append((sym, tf, cnt))
-    results, _ = fetch_many(reqs)
-    if not results:
-        return False
-
-    updates = []
-    for _, row in due.iterrows():
-        tf = int(row["Timeframe"])
-        cdf = results.get((row["Symbol"], tf))
-        if cdf is None:
-            continue
-        m = cdf[cdf["ts"] == int(row["EntryTS"])]
-        if m.empty:
-            if now_ts - float(row["ExpiryTS"]) > 200 * tf:
-                updates.append((row["Symbol"], int(row["EntryTS"]), "UNKNOWN", np.nan, np.nan))
-            continue
-        o = float(m.iloc[0]["open"]); c = float(m.iloc[0]["close"])
-        if c == o:
-            result = "DRAW"
-        elif ("BUY" in row["Signal"] and c > o) or ("SELL" in row["Signal"] and c < o):
-            result = "WIN"
-        else:
-            result = "LOSS"
-        updates.append((row["Symbol"], int(row["EntryTS"]), result, o, c))
-
-    if not updates:
-        return False
-    with _log_lock:
-        df = load_log()
-        for sym, ets, result, o, c in updates:
-            mask = (df["Symbol"] == sym) & (df["EntryTS"] == ets) & (df["Result"] == "PENDING")
-            df.loc[mask, "Result"] = result
-            if not math.isnan(o):
-                df.loc[mask, "Entry"] = o
-                df.loc[mask, "Close"] = c
-        save_log(df)
-    return True
-
-def compute_stake(base, martingale, max_steps):
-    """مضاعفة محدودة: تتصاعد بعد كل خسارة متتالية حتى السقف وتعود للأساس بعد أي ربح."""
-    if not martingale:
-        return base
-    df = load_log()
-    completed = df[df["Result"].isin(["WIN", "LOSS"])]
-    streak = 0
-    for r in reversed(completed["Result"].tolist()):
-        if r == "LOSS":
-            streak += 1
-        else:
-            break
-    return base * (2 ** min(streak, int(max_steps)))
+def evaluate_trades(current_price):
+    if not os.path.exists(CSV_FILE): return
+    df = pd.read_csv(CSV_FILE)
+    updated = False
+    now = datetime.now()
+    for index, row in df.iterrows():
+        if row['Result'] == 'PENDING':
+            expiry = datetime.strptime(row['Expiry'], "%Y-%m-%d %H:%M:%S")
+            if now >= expiry:
+                result = "WIN" if ("BUY" in row['Signal'] and current_price > row['Entry']) or ("SELL" in row['Signal'] and current_price < row['Entry']) else "LOSS"
+                df.at[index, 'Result'] = result
+                updated = True
+    if updated: df.to_csv(CSV_FILE, index=False)
 
 # ============================================================
 # 8. الرسم البياني وتصدير الصورة
@@ -541,282 +371,190 @@ def plot_chart(df, patterns, symbol):
     return fig
 
 def export_chart_image(fig, symbol):
-    # التوليد عند الطلب فقط (kaleido بطيء ولا يجب تشغيله مع كل تحديث)
-    if st.button("📸 تجهيز صورة الرسم البياني", key="prep_img", use_container_width=True):
-        try:
-            st.session_state['chart_png'] = (symbol, fig.to_image(format="png", width=1200, height=700, scale=2))
-        except Exception:
-            st.session_state.pop('chart_png', None)
-            st.info("لتحميل الصورة، تأكد من تثبيت مكتبة kaleido: py -m pip install kaleido")
-    saved = st.session_state.get('chart_png')
-    if saved:
-        sym, img_bytes = saved
+    try:
+        img_bytes = fig.to_image(format="png", width=1200, height=700, scale=2)
         st.download_button(
-            label="📥 تحميل الرسم البياني كصورة (PNG)",
+            label=t("dl_chart"),
             data=img_bytes,
-            file_name=f"{sym}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+            file_name=f"{symbol}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
             mime="image/png",
             use_container_width=True
         )
+    except:
+        st.info("لتحميل الصورة، تأكد من تثبيت مكتبة kaleido: py -m pip install kaleido")
 
 # ============================================================
-# 9. العداد التنازلي + تنبيه قبل الدخول (يعمل كل ثانية بدون تجميد الصفحة)
+# 9. العرض الرئيسي
 # ============================================================
-def fmt_mmss(sec):
-    sec = max(0, int(math.ceil(sec)))
-    return f"{sec // 60:02d}:{sec % 60:02d}"
-
-def schedule_trade(df, signal, strength, reason, stake):
-    current_price = float(df['close'].iloc[-1])
-    entry_ts = (int(time.time()) // period + 1) * period  # بداية الشمعة القادمة
-    log_trade(symbol, signal, strength, current_price, period, stake, entry_ts)
-    st.session_state['active_trade'] = {
-        "symbol": symbol, "signal": signal, "strength": strength, "stake": stake, "period": period,
-        "entry_ts": entry_ts, "expiry_ts": entry_ts + period, "pre_alerted": False, "entered_alerted": False,
-    }
-    st.session_state.pop('last_result_msg', None)
-    entry_clock = datetime.fromtimestamp(entry_ts).strftime("%H:%M:%S")
-    msg = (f"👑 <b>ELZOGHEIR VIP: {signal}</b>\n💰 {symbol}\n💵 السعر: {current_price:.5f}\n"
-           f"💪 قوة الإشارة: {strength}%\n📊 RSI: {df['RSI'].iloc[-1]:.1f}\n💸 حجم الدخول: ${stake}\n"
-           f"⏰ موعد الدخول: {entry_clock}\n📝 {reason}")
-    play_sound("signal")
-    if enable_telegram:
-        ok, err = send_telegram_alert(msg)
-        if not ok and err:
-            st.toast(f"تيليجرام: {err}", icon="⚠️")
-
-@st.fragment(run_every=1)
-def trade_timer():
-    trade = st.session_state.get('active_trade')
-    if not trade:
-        msg = st.session_state.get('last_result_msg')
-        if msg:
-            st.success(msg)
-        return
-
-    now = time.time()
-    to_entry = trade['entry_ts'] - now
-    to_exp = trade['expiry_ts'] - now
-    side = "شراء ▲" if "BUY" in trade['signal'] else "بيع ▼"
-    info = f"{trade['symbol']} — {side} • قوة {trade['strength']}% • ${trade['stake']}"
-
-    if to_entry > 0:
-        if to_entry <= pre_alert_seconds and not trade['pre_alerted']:
-            trade['pre_alerted'] = True
-            notify(f"⏰ الدخول بعد {int(to_entry)} ثانية: {trade['symbol']} {side}",
-                   f"⏰ <b>تنبيه قبل الدخول</b>\n💰 {trade['symbol']}\n📌 {trade['signal']} ({trade['strength']}%)\n"
-                   f"⌛ الدخول بعد {int(to_entry)} ثانية\n💸 ${trade['stake']}", "pre")
-        urgent = " urgent" if to_entry <= pre_alert_seconds else ""
-        entry_clock = datetime.fromtimestamp(trade['entry_ts']).strftime("%H:%M:%S")
-        st.markdown(f"""
-        <div class="countdown-box{urgent}">
-            <div class="countdown-label">⏳ موعد الدخول — {info}</div>
-            <div class="countdown-time">{fmt_mmss(to_entry)}</div>
-            <div class="countdown-label">الدخول عند {entry_clock}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    elif to_exp > 0:
-        if not trade['entered_alerted']:
-            trade['entered_alerted'] = True
-            notify(f"🚀 ادخل الآن: {trade['symbol']} {side}",
-                   f"🚀 <b>ادخل الآن</b>\n💰 {trade['symbol']}\n📌 {trade['signal']}\n💸 ${trade['stake']}", "enter")
-        st.markdown(f"""
-        <div class="countdown-box">
-            <div class="countdown-label">🔥 الصفقة جارية — {info}</div>
-            <div class="countdown-time">{fmt_mmss(to_exp)}</div>
-            <div class="countdown-label">الوقت المتبقي لإغلاق الصفقة</div>
-        </div>
-        """, unsafe_allow_html=True)
-    elif now < trade['expiry_ts'] + 3:
-        st.markdown('<div class="countdown-box"><div class="countdown-label">⌛ جاري إغلاق الصفقة...</div></div>', unsafe_allow_html=True)
-    else:
-        with st.spinner("جاري تقييم الصفقة..."):
-            evaluate_trades()
-        log_df = load_log()
-        row = log_df[(log_df["Symbol"] == trade['symbol']) & (log_df["EntryTS"] == trade['entry_ts'])]
-        result = row.iloc[-1]["Result"] if len(row) else "PENDING"
-        icon = {"WIN": "🏆 ربح", "LOSS": "❌ خسارة", "DRAW": "➖ تعادل"}.get(result)
-        if icon:
-            st.session_state['last_result_msg'] = f"✅ انتهت صفقة {trade['symbol']} — النتيجة: {icon}"
-        else:
-            st.session_state['last_result_msg'] = f"✅ انتهت مدة صفقة {trade['symbol']} — سيتم تقييمها عند الجلب التالي."
-        st.session_state['active_trade'] = None
-        st.success(st.session_state['last_result_msg'])
-
-# ============================================================
-# 10. العرض الرئيسي
-# ============================================================
-def render_analysis(auto_mode=False):
-    cache = st.session_state.get('analysis')
-    cache_ok = bool(cache) and cache['symbol'] == symbol and cache['period'] == period
-    force = st.session_state.pop('do_fetch', False)
-    stale = auto_mode and (not cache_ok or time.time() - cache['fetched_at'] >= 55)
-    fresh = force or stale
-
-    if fresh:
-        slot = st.empty()
-        show_loader(slot, f"جاري جلب صفقة {symbol}", "اتصال آمن • 200 شمعة • تحليل متعدد الأطر الزمنية")
-        results, errors = fetch_many([(symbol, period, max_candles), (symbol, higher_tf, max_candles)])
-        df = results.get((symbol, period))
-        if df is None:
-            slot.empty()
-            err = errors.get((symbol, period)) or errors.get("connection") or errors.get("error") or "سبب غير معروف"
-            st.error(f"تعذر جلب بيانات {symbol}: {err}")
-            return
-        higher_df = results.get((symbol, higher_tf))
-        show_loader(slot, "جاري تحليل الأنماط والمؤشرات", "RSI • MACD • EMA200 • ATR • الأنماط الشمعية")
-        df = calculate_indicators(df)
-        if higher_df is not None:
-            higher_df = calculate_indicators(higher_df)
-        patterns = detect_patterns(df)
-        signal, buys, sells, reason, strength = generate_signal(patterns, df, higher_df)
-        slot.empty()
-        cache = dict(symbol=symbol, period=period, fetched_at=time.time(), df=df, higher_df=higher_df,
-                     patterns=patterns, signal=signal, buys=buys, sells=sells, reason=reason, strength=strength)
-        st.session_state['analysis'] = cache
-        if higher_df is None:
-            st.warning("تعذر جلب الإطار الأكبر، لذلك لن تُصنَّف الإشارة كـ STRONG.")
-        evaluate_trades()
-    elif cache_ok:
-        df, patterns = cache['df'], cache['patterns']
-        signal, reason, strength = cache['signal'], cache['reason'], cache['strength']
-    else:
-        st.info("👈 اضغط **جلب صفقة** في الشريط الجانبي لتحليل هذا الزوج والإطار.")
-        return
-
-    current_price = df['close'].iloc[-1]
-    current_stake = compute_stake(base_stake, martingale_mode, martingale_max_steps)
-
-    # معالجة الإشارة الجديدة (مرة واحدة لكل شمعة/زوج/اتجاه)
-    if fresh and signal in ["STRONG BUY", "STRONG SELL"]:
-        key = (symbol, signal, int(df['ts'].iloc[-1]))
-        if key != st.session_state.get('last_signal_key'):
-            st.session_state['last_signal_key'] = key
-            if st.session_state.get('active_trade') or has_pending(symbol):
-                st.warning("توجد صفقة نشطة/معلّقة بالفعل، لم تُجدول صفقة جديدة.")
-            else:
-                schedule_trade(df, signal, strength, reason, current_stake)
-
-    # عرض البطاقات
-    c1, c2, c3, c4 = st.columns(4)
-    with c1: st.markdown(f'<div class="metric-card"><div class="metric-label">السعر</div><div class="metric-value">{current_price:,.5f}</div></div>', unsafe_allow_html=True)
-    with c2:
-        rsi_val = df['RSI'].iloc[-1]
-        cls = "sell-signal" if rsi_val > 70 else "buy-signal" if rsi_val < 30 else ""
-        st.markdown(f'<div class="metric-card"><div class="metric-label">RSI</div><div class="metric-value {cls}">{rsi_val:.1f}</div></div>', unsafe_allow_html=True)
-    with c3:
-        trend = "صاعد ↗" if current_price > df['EMA200'].iloc[-1] else "هابط ↘"
-        t_cls = "buy-signal" if "صاعد" in trend else "sell-signal"
-        st.markdown(f'<div class="metric-card"><div class="metric-label">الاتجاه</div><div class="metric-value {t_cls}">{trend}</div></div>', unsafe_allow_html=True)
-    with c4:
-        st.markdown(f'<div class="metric-card"><div class="metric-label">حجم الدخول</div><div class="metric-value" style="color:#FFD700">${current_stake}</div></div>', unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    fig = plot_chart(df, patterns, symbol)
-    st.plotly_chart(fig, use_container_width=True)
-    export_chart_image(fig, symbol)
-
-    # عرض الإشارة + نسبة القوة بجانبها
-    sig_color = "buy-signal" if "BUY" in signal else "sell-signal" if "SELL" in signal else "neutral-signal"
-    emoji = "🟢" if "BUY" in signal else "🔴" if "SELL" in signal else "🟡"
-    sc = strength_color(strength)
-    st.markdown(f"""
-    <div class="metric-card" style="margin-bottom: 10px; border-color: #FFD700;">
-        <div class="metric-label">الإشارة النهائية</div>
-        <div class="signal-row">
-            <div class="metric-value {sig_color}" style="font-size: 1.8rem;">{emoji} {signal}</div>
-            <div class="strength-badge" style="color:{sc}; border-color:{sc};">💪 {strength}%</div>
-        </div>
-        <div class="strength-track"><div class="strength-fill" style="width:{strength}%; background:{sc};"></div></div>
-        <div style="color:#8899AA; font-size:0.9rem;">{reason}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # لوحة التحليلات
-    log_df = load_log()
-    if len(log_df) > 0:
-        with st.expander("📊 لوحة التحليلات وإدارة رأس المال"):
-            col1, col2 = st.columns(2)
-            with col1:
-                wins = len(log_df[log_df['Result'] == 'WIN'])
-                losses = len(log_df[log_df['Result'] == 'LOSS'])
-                if wins + losses > 0:
-                    st.metric("نسبة النجاح", f"{wins / (wins + losses) * 100:.1f}%")
-                    pie_fig = go.Figure(data=[go.Pie(labels=['Wins', 'Losses'], values=[wins, losses], hole=.4, marker_colors=['#00FFAA', '#FF3355'])])
-                    pie_fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", height=300, margin=dict(t=10, b=10))
-                    st.plotly_chart(pie_fig, use_container_width=True)
-            with col2:
-                st.markdown("### أفضل الأزواج (Top Pairs)")
-                completed = log_df[log_df['Result'].isin(['WIN', 'LOSS'])]
-                if len(completed) > 0:
-                    pair_stats = completed.groupby('Symbol')['Result'].value_counts().unstack(fill_value=0)
-                    st.dataframe(pair_stats, use_container_width=True)
-                st.download_button("📥 تحميل السجل (CSV)", log_df.to_csv(index=False).encode('utf-8'), "elzogheir_log.csv", "text/csv", use_container_width=True)
-
-render_analysis_auto = st.fragment(run_every=60)(render_analysis)
-
-def run_scanner():
-    slot = st.empty()
-    reqs = []
-    for p in PAIRS:
-        reqs.append((p, period, max_candles))
-        reqs.append((p, higher_tf, max_candles))
-    show_loader(slot, "جاري مسح السوق", f"فحص {len(PAIRS)} زوج • 200 شمعة لكل زوج", pct=0)
-
-    def cb(n, total, sym):
-        show_loader(slot, "جاري مسح السوق", f"{sym} ({n}/{total})", pct=n / total * 100)
-
-    results, errors = fetch_many(reqs, cb)
-    rows, failed = [], []
-    for p in PAIRS:
-        d = results.get((p, period))
-        if d is None:
-            failed.append(f"{p}: {errors.get((p, period), errors.get('connection', 'فشل'))}")
-            continue
-        d = calculate_indicators(d)
-        h = results.get((p, higher_tf))
-        if h is not None:
-            h = calculate_indicators(h)
-        sig, _, _, _, stren = generate_signal(detect_patterns(d), d, h)
-        rows.append({"الزوج": p, "الإشارة": sig, "القوة %": stren, "السعر": f"{d['close'].iloc[-1]:.5f}"})
-    slot.empty()
-    st.session_state['scan_results'] = {"rows": rows, "failed": failed, "period": period}
-
-def render_scan_results():
-    sr = st.session_state.get('scan_results')
-    if not sr:
-        return False
-    st.markdown("### 🔍 نتائج مسح السوق (Scanner)")
-    if sr["rows"]:
-        res = pd.DataFrame(sr["rows"]).sort_values("القوة %", ascending=False)
-        st.dataframe(res, use_container_width=True, hide_index=True, column_config={
-            "القوة %": st.column_config.ProgressColumn("القوة %", min_value=0, max_value=100, format="%d%%")
-        })
-    else:
-        st.warning("لم يتم جلب أي زوج.")
-    if sr["failed"]:
-        with st.expander(f"⚠️ أزواج لم تُجلب ({len(sr['failed'])})"):
-            for f in sr["failed"]:
-                st.write(f)
-    return True
-
-# ---- التشغيل ----
-trade_timer()
-
-if st.session_state.pop('run_scanner', False):
-    run_scanner()
-
-shown = False
 if st.session_state.get('run_scan') or enable_auto_refresh:
-    shown = True
-    if enable_auto_refresh:
-        render_analysis_auto(True)
-    else:
-        render_analysis(False)
+    df = get_otc_data(symbol, period, max_candles)
+    
+    if df is not None and len(df) > 0:
+        df = calculate_indicators(df)
+        
+        # سحب الإطار الأكبر للتحليل المتعدد
+        higher_tf = 300 if period < 300 else 900
+        higher_df = get_otc_data(symbol, higher_tf, 50)
+        if higher_df is not None: higher_df = calculate_indicators(higher_df)
+        
+        patterns = detect_patterns(df)
+        signal, buys, sells, reason = generate_signal(patterns, df, higher_df)
+        current_price = df['close'].iloc[-1]
+        
+        evaluate_trades(current_price)
 
-if render_scan_results():
-    shown = True
+        # إدارة المخاطر وحجم الدخول
+        current_stake = base_stake
+        if os.path.exists(CSV_FILE) and martingale_mode:
+            log_df = pd.read_csv(CSV_FILE)
+            completed = log_df[log_df['Result'].isin(['WIN', 'LOSS'])]
+            if len(completed) > 0:
+                last_result = completed.iloc[-1]['Result']
+                last_stake = completed.iloc[-1]['Stake']
+                if last_result == 'LOSS':
+                    current_stake = last_stake * 2 # Martingale
 
-if not shown:
-    st.info("👈 اضغط **جلب صفقة** في الشريط الجانبي لبدء التحليل.")
+        # معالجة الإشارة الجديدة
+        last_signal = st.session_state.get('last_signal', None)
+        if signal in ["STRONG BUY", "STRONG SELL"] and signal != last_signal:
+            msg = f"👑 <b>ELZOGHEIR VIP: {signal}</b>\n💰 {symbol}\n💵 السعر: {current_price:.5f}\n📊 RSI: {df['RSI'].iloc[-1]:.1f}\n💸 حجم الدخول: ${current_stake}\n📝 {reason}"
+            if enable_telegram: send_telegram_alert(msg)
+            play_sound()
+            log_trade(symbol, signal, current_price, period, current_stake)
+            st.session_state['last_signal'] = signal
+            st.session_state['trade_opened_time'] = time.time()
+            st.session_state['active_stake'] = current_stake
+
+        # عرض البطاقات
+        c1, c2, c3, c4 = st.columns(4)
+        with c1: st.markdown(f'<div class="metric-card"><div class="metric-label">{t("price")}</div><div class="metric-value">{current_price:,.5f}</div></div>', unsafe_allow_html=True)
+        with c2:
+            rsi_val = df['RSI'].iloc[-1]
+            cls = "sell-signal" if rsi_val > 70 else "buy-signal" if rsi_val < 30 else ""
+            st.markdown(f'<div class="metric-card"><div class="metric-label">RSI</div><div class="metric-value {cls}">{rsi_val:.1f}</div></div>', unsafe_allow_html=True)
+        with c3:
+            is_up = current_price > df['EMA200'].iloc[-1]
+            trend = t("up") if is_up else t("down")
+            t_cls = "buy-signal" if is_up else "sell-signal"
+            st.markdown(f'<div class="metric-card"><div class="metric-label">{t("trend")}</div><div class="metric-value {t_cls}">{trend}</div></div>', unsafe_allow_html=True)
+        with c4:
+            st.markdown(f'<div class="metric-card"><div class="metric-label">{t("stake_card")}</div><div class="metric-value" style="color:#FFD700">${current_stake}</div></div>', unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ليزر سكنر الشارت
+        if st.session_state.pop('laser_pending', False):
+            st.session_state['laser_until'] = time.time() + 6
+
+        if time.time() < st.session_state.get('laser_until', 0):
+            st.markdown("""
+            <style>
+            div[data-testid="stPlotlyChart"] { position: relative; overflow: hidden; border-radius: 12px; }
+            div[data-testid="stPlotlyChart"]::after {
+                content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; z-index: 50;
+                pointer-events: none;
+                background: linear-gradient(90deg, transparent, #FF0033 20%, #FF6680 50%, #FF0033 80%, transparent);
+                box-shadow: 0 0 12px 4px rgba(255,0,51,0.8), 0 0 60px 20px rgba(255,0,51,0.25);
+                animation: laserMove 1.8s ease-in-out 3 alternate;
+            }
+            div[data-testid="stPlotlyChart"]::before {
+                content: "◉ SCANNING..."; position: absolute; top: 8px; left: 14px; z-index: 50;
+                color: #FF3355; font: 700 12px monospace; letter-spacing: 3px; pointer-events: none;
+                text-shadow: 0 0 8px #FF0033; animation: blink 0.6s step-end infinite;
+            }
+            @keyframes laserMove { from { top: 0; } to { top: calc(100% - 3px); } }
+            @keyframes blink { 50% { opacity: 0; } }
+            </style>
+            """, unsafe_allow_html=True)
+
+        fig = plot_chart(df, patterns, symbol)
+        st.plotly_chart(fig, use_container_width=True)
+        export_chart_image(fig, symbol)
+
+        # عرض الإشارة والعداد التنازلي
+        sig_color = "buy-signal" if "BUY" in signal else "sell-signal" if "SELL" in signal else "neutral-signal"
+        emoji = "🟢" if "BUY" in signal else "🔴" if "SELL" in signal else "🟡"
+        
+        st.markdown(f"""
+        <div class="metric-card" style="margin-bottom: 10px; border-color: #FFD700;">
+            <div class="metric-label">{t("final")}</div>
+            <div class="metric-value {sig_color}" style="font-size: 1.8rem;">{emoji} {signal}</div>
+            <div style="color:#8899AA; font-size:0.9rem;">{reason}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # تنبيه قبل الدخول بـ 30 ثانية
+        if enable_pre_alert and period > 30 and signal in ["STRONG BUY", "STRONG SELL"]:
+            candle_id = int(time.time() // period)
+            to_entry = period - (int(time.time()) % period)
+            if to_entry <= 30:
+                st.markdown(f"""
+                <div class="countdown-box pre-alert">
+                    <div class="countdown-label">{t("pre_msg")} · {symbol} · {signal}</div>
+                    <div class="countdown-time">{to_entry} {t("pre_unit")}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                if st.session_state.get('pre_alert_candle') != candle_id:
+                    st.session_state['pre_alert_candle'] = candle_id
+                    play_sound(f"pre_alert_{candle_id}")
+                    if enable_telegram:
+                        send_telegram_alert(f"⏰ <b>{t('pre_msg')} {to_entry} {t('pre_unit')}</b>\n{symbol} · {signal}")
+
+        # العداد التنازلي
+        if st.session_state.get('trade_opened_time') and signal in ["STRONG BUY", "STRONG SELL"]:
+            elapsed = time.time() - st.session_state['trade_opened_time']
+            remaining = int(period - elapsed)
+            if remaining > 0:
+                st.markdown(f"""
+                <div class="countdown-box">
+                    <div class="countdown-label">{t("cd")} {symbol} {t("cd_unit")}</div>
+                    <div class="countdown-time">{remaining}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                time.sleep(1)
+                st.rerun()
+            else:
+                st.success(t("done"))
+                st.session_state['trade_opened_time'] = None
+
+        # لوحة التحليلات
+        if os.path.exists(CSV_FILE):
+            log_df = pd.read_csv(CSV_FILE)
+            with st.expander(t("analytics")):
+                col1, col2 = st.columns(2)
+                with col1:
+                    wins = len(log_df[log_df['Result'] == 'WIN'])
+                    losses = len(log_df[log_df['Result'] == 'LOSS'])
+                    if wins + losses > 0:
+                        pie_fig = go.Figure(data=[go.Pie(labels=['Wins', 'Losses'], values=[wins, losses], hole=.4, marker_colors=['#00FFAA', '#FF3355'])])
+                        pie_fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", height=300, margin=dict(t=10, b=10))
+                        st.plotly_chart(pie_fig, use_container_width=True)
+                with col2:
+                    st.markdown(f"### {t('top')}")
+                    completed = log_df[log_df['Result'].isin(['WIN', 'LOSS'])]
+                    if len(completed) > 0:
+                        pair_stats = completed.groupby('Symbol')['Result'].value_counts().unstack(fill_value=0)
+                        st.dataframe(pair_stats, use_container_width=True)
+                    st.download_button(t("dl_log"), log_df.to_csv(index=False).encode('utf-8'), "elzogheir_log.csv", "text/csv", use_container_width=True)
+
+# مسح السوق (Scanner)
+if st.session_state.get('run_scanner'):
+    st.markdown(t("scan_title"))
+    with st.spinner(t("scan_spin")):
+        scan_pairs = PAIRS[:10] # فحص أول 10 أزواج
+        results = []
+        for p in scan_pairs:
+            d = get_otc_data(p, 60, 100)
+            if d is not None:
+                d = calculate_indicators(d)
+                pats = detect_patterns(d)
+                sig, _, _, _ = generate_signal(pats, d, None)
+                results.append({t("c_pair"): p, t("c_sig"): sig, t("c_price"): f"{d['close'].iloc[-1]:.5f}"})
+        st.table(pd.DataFrame(results))
+
+else:
+    st.info(t("info"))
+
+if enable_auto_refresh:
+    time.sleep(60)
+    st.rerun()
